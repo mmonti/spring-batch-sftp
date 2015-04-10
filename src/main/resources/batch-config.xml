@@ -1,0 +1,125 @@
+<beans xmlns="http://www.springframework.org/schema/beans"
+       xmlns:batch="http://www.springframework.org/schema/batch"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xsi:schemaLocation="http://www.springframework.org/schema/batch
+		http://www.springframework.org/schema/batch/spring-batch-2.2.xsd
+		http://www.springframework.org/schema/beans
+		http://www.springframework.org/schema/beans/spring-beans-3.2.xsd
+	">
+
+    <bean id="jobRepository" class="org.springframework.batch.core.repository.support.MapJobRepositoryFactoryBean">
+        <property name="transactionManager" ref="transactionManager" />
+    </bean>
+
+    <bean id="transactionManager" class="org.springframework.batch.support.transaction.ResourcelessTransactionManager" />
+
+    <bean id="jobLauncher" class="org.springframework.batch.core.launch.support.SimpleJobLauncher">
+        <property name="jobRepository" ref="jobRepository" />
+    </bean>
+
+    <bean class="org.springframework.batch.core.configuration.support.JobRegistryBeanPostProcessor">
+        <property name="jobRegistry" ref="jobRegistry" />
+    </bean>
+
+    <bean id="jobRegistry" class="org.springframework.batch.core.configuration.support.MapJobRegistry" />
+    <!-- spring batch context -->
+
+    <!--EMBEEDED SFTPSERVER FOR TESTING PURPOSES-->
+    <bean id="serverPort" class="java.lang.String">
+        <constructor-arg value="#{'${port}' == '-1' ? T(com.dreamworks.dsp.server.EmbeddedSftpServer).PORT : '${port}'}"/>
+    </bean>
+
+    <bean class="com.dreamworks.dsp.server.EmbeddedSftpServer">
+        <property name="port" value="#{serverPort}"/>
+    </bean>
+
+    <!--SFTP SESSION FACTORY-->
+    <bean id="cachingSessionFactory" class="org.springframework.integration.file.remote.session.CachingSessionFactory">
+        <constructor-arg ref="defaultSftpSessionFactory" />
+    </bean>
+
+    <bean id="defaultSftpSessionFactory" class="org.springframework.integration.sftp.session.DefaultSftpSessionFactory">
+        <property name="host" value="${host}"/>
+        <property name="privateKey" value="${private.keyfile}"/>
+        <property name="privateKeyPassphrase" value="${passphrase}"/>
+        <property name="port" value="#{serverPort}"/>
+        <property name="user" value="${username}"/>
+    </bean>
+
+    <bean id="sftpRemoteFileTemplate" class="org.springframework.integration.sftp.session.SftpRemoteFileTemplate">
+        <constructor-arg name="sessionFactory" ref="cachingSessionFactory"/>
+    </bean>
+
+    <bean id="personModel" class="com.dreamworks.dsp.et.model.BounceModel" scope="prototype"/>
+
+    <bean id="itemProcessor" class="com.dreamworks.dsp.et.processors.BounceProcessor"/>
+
+    <bean id="multiRemoteResourceReader" class="com.dreamworks.dsp.et.readers.MultiRemoteResourceReader" scope="step">
+        <property name="remoteFileTemplate" ref="sftpRemoteFileTemplate"/>
+        <property name="delegate" ref="trackingFlatFileItemReader"/>
+        <property name="remoteFilePattern" value="local-dir/bounced-*"/>
+    </bean>
+
+    <bean id="trackingFlatFileItemReader" class="com.dreamworks.dsp.et.readers.TrackingFlatFileItemReader" scope="step">
+        <property name="processedKey" ref="processed"/>
+        <property name="succeededKey" ref="succeeded"/>
+        <property name="failedKey" ref="failed"/>
+        <property name="stepExecution" value="#{stepExecution}"/>
+        <property name="linesToSkip" value="1"/>
+        <property name="lineMapper">
+            <bean class="org.springframework.batch.item.file.mapping.DefaultLineMapper">
+                <property name="lineTokenizer">
+                    <bean class="org.springframework.batch.item.file.transform.DelimitedLineTokenizer">
+                        <property name="names" value="id, name, age"/>
+                    </bean>
+                </property>
+                <property name="fieldSetMapper">
+                    <bean class="org.springframework.batch.item.file.mapping.BeanWrapperFieldSetMapper">
+                        <property name="prototypeBeanName" value="personModel"/>
+                    </bean>
+                </property>
+            </bean>
+        </property>
+    </bean>
+
+    <bean id="processed" class="java.lang.String">
+        <constructor-arg type="java.lang.String" value="processed-resources"/>
+    </bean>
+    <bean id="succeeded" class="java.lang.String">
+        <constructor-arg type="java.lang.String" value="succeeded-resources"/>
+    </bean>
+    <bean id="failed" class="java.lang.String">
+        <constructor-arg type="java.lang.String" value="failed-resources"/>
+    </bean>
+
+    <bean id="cleanRemoteResourcesTasklet" class="com.dreamworks.dsp.et.tasklet.CleanRemoteResourcesTasklet" scope="step">
+        <property name="remoteFileTemplate" ref="sftpRemoteFileTemplate"/>
+        <property name="remoteResources" value="#{jobExecutionContext['succeeded-resources']}"/>
+    </bean>
+
+    <bean id="noOpWriter" class="com.dreamworks.dsp.et.writers.NoOpWriter"/>
+    <bean id="completionPolicy" class="org.springframework.batch.repeat.policy.SimpleCompletionPolicy"/>
+
+    <batch:job id="processingJob">
+        <batch:step id="readRemoteResources" next="cleanSucceeded">
+            <batch:tasklet>
+                <batch:chunk reader="multiRemoteResourceReader" processor="itemProcessor" writer="noOpWriter" chunk-completion-policy="completionPolicy" skip-limit="10">
+                    <batch:skippable-exception-classes>
+                        <batch:include class="org.springframework.batch.item.file.FlatFileParseException"/>
+                    </batch:skippable-exception-classes>
+                </batch:chunk>
+            </batch:tasklet>
+            <batch:listeners>
+                <batch:listener ref="executionContextPromotionListener"/>
+            </batch:listeners>
+        </batch:step>
+
+        <batch:step id="cleanSucceeded">
+            <batch:tasklet ref="cleanRemoteResourcesTasklet"/>
+        </batch:step>
+    </batch:job>
+
+    <bean id="executionContextPromotionListener" class="org.springframework.batch.core.listener.ExecutionContextPromotionListener">
+        <property name="keys" value="processed-resources, succeeded-resources, failed-resources"/>
+    </bean>
+</beans>
