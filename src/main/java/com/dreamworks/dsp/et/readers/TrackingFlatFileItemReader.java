@@ -15,24 +15,12 @@ import java.util.Set;
  *
  * @author mauro.monti@dreamworks.com
  */
-public class TrackingFlatFileItemReader<T> extends FlatFileItemReader<T> implements ResourceAware {
+public class TrackingFlatFileItemReader<T> extends FlatFileItemReader<T> implements ResourceAware, TrackableAware {
 
     private Logger logger = LoggerFactory.getLogger(TrackingFlatFileItemReader.class);
 
-    private static final String DEFAULT_PROCESSED_KEY = "processed";
-    private static final String DEFAULT_SUCCESS_KEY = "success";
-    private static final String DEFAULT_FAIL_KEY = "fail";
-
     private Resource resource;
-    private ExecutionContext executionContext;
-
-    private Set<String> processed = new HashSet();
-    private Set<String> succeeded = new HashSet();
-    private Set<String> failed = new HashSet();
-
-    private String processedKey = DEFAULT_PROCESSED_KEY;
-    private String succeededKey = DEFAULT_SUCCESS_KEY;
-    private String failedKey = DEFAULT_FAIL_KEY;
+    private Trackable trackable;
 
     @Override
     protected void doOpen() throws Exception {
@@ -49,13 +37,14 @@ public class TrackingFlatFileItemReader<T> extends FlatFileItemReader<T> impleme
             result = super.doRead();
 
             // = Add the file to the processed resources list in order to track which file failed.
-            processed.add(resource.getFilename());
+            logger.debug("Read item from resource=[{}]", resource.getFilename());
+            trackable.add(MultiRemoteResourceReader.TrackingType.PROCESSED, resource.getFilename());
 
             return result;
 
         } catch (Exception e) {
             logger.debug("Error reading resource=[{}], marking it as failed resource.", resource.getFilename());
-            failed.add(resource.getFilename());
+            trackable.add(MultiRemoteResourceReader.TrackingType.FAILED, resource.getFilename());
 
             return null;
         }
@@ -64,24 +53,6 @@ public class TrackingFlatFileItemReader<T> extends FlatFileItemReader<T> impleme
     @Override
     protected void doClose() throws Exception {
         super.doClose();
-
-        // = Compute succeeded files.
-        succeeded.addAll(processed);
-        succeeded.removeAll(failed);
-
-        // = Add the list to the execution context to pass it along the other steps.
-        executionContext.put(processedKey, processed);
-        executionContext.put(succeededKey, succeeded);
-        executionContext.put(failedKey, failed);
-    }
-
-    /**
-     * We need to inject the step execution and use it to promote the files that were processed.
-     * @param stepExecution
-     */
-    public void setStepExecution(final StepExecution stepExecution) {
-        executionContext = stepExecution.getExecutionContext();
-        logger.debug("executionContext set=[{}]", executionContext);
     }
 
     /**
@@ -95,15 +66,8 @@ public class TrackingFlatFileItemReader<T> extends FlatFileItemReader<T> impleme
         logger.debug("current resource=[{}]", resource.getFilename());
     }
 
-    public void setProcessedKey(String processedKey) {
-        this.processedKey = processedKey;
-    }
-
-    public void setSucceededKey(String succeededKey) {
-        this.succeededKey = succeededKey;
-    }
-
-    public void setFailedKey(String failedKey) {
-        this.failedKey = failedKey;
+    @Override
+    public void setTrackable(final Trackable trackable) {
+        this.trackable = trackable;
     }
 }

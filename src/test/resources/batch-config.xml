@@ -55,16 +55,16 @@
     <bean id="itemProcessor" class="com.dreamworks.dsp.et.processors.BounceProcessor"/>
 
     <bean id="multiRemoteResourceReader" class="com.dreamworks.dsp.et.readers.MultiRemoteResourceReader" scope="step">
-        <property name="processedPromotionKey" ref="processed"/>
-        <property name="succeededPromotionKey" ref="succeeded"/>
-        <property name="failedPromotionKey" ref="failed"/>
-
         <property name="remoteFileTemplate" ref="sftpRemoteFileTemplate"/>
         <property name="delegate" ref="trackingFlatFileItemReader"/>
         <property name="remoteFilePattern" value="local-dir/bounced-*"/>
     </bean>
 
-    <bean id="trackingFlatFileItemReader" class="com.dreamworks.dsp.et.readers.TrackingFlatFileItemReader">
+    <bean id="trackingFlatFileItemReader" class="com.dreamworks.dsp.et.readers.TrackingFlatFileItemReader" scope="step">
+        <property name="processedKey" ref="processed"/>
+        <property name="succeededKey" ref="succeeded"/>
+        <property name="failedKey" ref="failed"/>
+        <property name="stepExecution" value="#{stepExecution}"/>
         <property name="linesToSkip" value="1"/>
         <property name="lineMapper">
             <bean class="org.springframework.batch.item.file.mapping.DefaultLineMapper">
@@ -122,4 +122,6 @@
     <bean id="executionContextPromotionListener" class="org.springframework.batch.core.listener.ExecutionContextPromotionListener">
         <property name="keys" value="processed-resources, succeeded-resources, failed-resources"/>
     </bean>
+
+    <bean id="jobLauncherTestUtils" class="org.springframework.batch.test.JobLauncherTestUtils"/>
 </beans>

@@ -33,7 +33,7 @@ public class CleanRemoteResourcesTasklet implements Tasklet {
             return RepeatStatus.FINISHED;
         }
 
-        remoteFileTemplate.execute(sessionCallback);
+        //remoteFileTemplate.execute(sessionCallback);
 
         return RepeatStatus.FINISHED;
     }
